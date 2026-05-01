@@ -1,19 +1,23 @@
+import os
 import sqlite3
 import threading
 from datetime import datetime
+
 import telebot
 
-# Чтение токена и инициализация бота
-with open('Token.txt', 'r') as file:
-    API_TOKEN = file.read().strip()
+API_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+if not API_TOKEN:
+    raise RuntimeError("TELEGRAM_BOT_TOKEN is not set")
+
+CURATOR_ID = int(os.getenv("CURATOR_ID", "143612737"))
+DB_PATH = os.getenv("DB_PATH", "db.sqlite3")
+
 bot = telebot.TeleBot(API_TOKEN)
 
 # Удаление текущего вебхука перед использованием polling
 bot.remove_webhook()
 
 # Инициализация базы данных
-DB_PATH = 'db.sqlite3'
-
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
@@ -95,7 +99,7 @@ def need_swap_finalize(message):
 
 # Уведомление куратора (заглушка)
 def notify_curator(group, date, reason, user):
-    curator_id = '143612737'
+    curator_id = CURATOR_ID
     message_text = (
         f'🔔 Новая замена!\n'
         f'📅 Дата: {date}\n'
