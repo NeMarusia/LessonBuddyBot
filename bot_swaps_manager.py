@@ -1,20 +1,23 @@
-```python
+import os
 import sqlite3
 import threading
 from datetime import datetime
+
 import telebot
 
-# Чтение токена и инициализация бота
-with open('Token.txt', 'r') as file:
-    API_TOKEN = file.read().strip()
+API_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+if not API_TOKEN:
+    raise RuntimeError("TELEGRAM_BOT_TOKEN is not set")
+
+CURATOR_ID = int(os.getenv("CURATOR_ID", "143612737"))
+DB_PATH = os.getenv("DB_PATH", "db.sqlite3")
+
 bot = telebot.TeleBot(API_TOKEN)
 
 # Удаление текущего вебхука перед использованием polling
 bot.remove_webhook()
 
 # Инициализация базы данных
-DB_PATH = 'db.sqlite3'
-
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
@@ -36,6 +39,7 @@ def init_db():
 
 
 init_db()
+
 
 # Хэндлер старта
 @bot.message_handler(commands=['start'])
@@ -95,7 +99,7 @@ def need_swap_finalize(message):
 
 # Уведомление куратора (заглушка)
 def notify_curator(group, date, reason, user):
-    curator_id = 'https://t.me/SidorenkoMN'
+    curator_id = CURATOR_ID
     message_text = (
         f'🔔 Новая замена!\n'
         f'📅 Дата: {date}\n'
@@ -105,21 +109,58 @@ def notify_curator(group, date, reason, user):
     )
     bot.send_message(curator_id, message_text)
 
+# Модифицируем стартовый хэндлер, чтобы создавалось уникальное меню для куратора
+@bot.message_handler(commands=['start'])
+def start_handler(message):
+    markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
+    markup.add('Нужна замена!', 'Замена не нужна!', 'Просмотр статусов замен')
+
+    # Если пользователь - куратор, добавляем кнопку "Просмотр всех замен"
+    if message.from_user.id == CURATOR_ID:
+        markup.add('Просмотр всех замен')
+
+    bot.send_message(message.chat.id, 'Привет! Если тебе необходима замена, выбери действие:', reply_markup=markup)
+
+
+# Хэндлер для кнопки "Просмотр всех замен"
+@bot.message_handler(func=lambda msg: msg.text == 'Просмотр всех замен' and msg.from_user.id == CURATOR_ID)
+def view_all_swaps_handler(message):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    # Извлекаем все данные из таблицы "swaps"
+    cursor.execute(
+        'SELECT "id", "group", "lesson_date", "reason", "user", "status" FROM swaps ORDER BY created_at DESC')
+    rows = cursor.fetchall()
+    conn.close()
+
+    # Формируем сообщение
+    if rows:
+        response = "📋 Все замены:\n"
+        for row in rows:
+            swap_id, group, lesson_date, reason, user, status = row
+            status_text = 'В обработке' if status == 0 else 'Обработано'
+            response += (
+                f"➖ Замена #{swap_id}\n"
+                f"👥 Группа: {group}\n"
+                f"📅 Дата: {lesson_date}\n"
+                f"💬 Причина: {reason}\n"
+                f"👤 Пользователь: {user}\n"
+                f"📌 Статус: {status_text}\n\n"
+            )
+    else:
+        response = "📋 Список замен пуст."
+
+    # Отправляем список замен куратору
+    bot.send_message(message.chat.id, response)
+
+
+# Добавляем заглушку для доступа другим пользователям
+@bot.message_handler(func=lambda msg: msg.text == 'Просмотр всех замен' and msg.from_user.id != CURATOR_ID)
+def view_all_swaps_access_denied(message):
+    bot.send_message(message.chat.id, '❌ У вас нет доступа к этой функции.')
+
 
 # Запуск бота
 if __name__ == '__main__':
     threading.Thread(target=bot.infinity_polling, kwargs={"none_stop": True}).start()
-
-```
-
-### Объяснение:
-1. **Перемещение инициализации `bot` перед использованием:**
-   Теперь объект `bot` создаётся сразу после загрузки токена из файла.
-   
-2. **Удаление ненужного кода:**
-   Убраны лишние импортированные библиотеки, не связанные с текущей задачей (например, непроверяемые импорты `CELERY`, `SSL`).
-
-3. **Глобальная обработка исключений:**
-   Поправлены участки кода, где могли возникнуть ошибки, например, в форматировании даты.
-
-Теперь программа должна работать корректно без ошибок `NameError`.
